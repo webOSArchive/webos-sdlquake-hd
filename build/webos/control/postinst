@@ -73,13 +73,23 @@ chmod 644 "$UDEVRULE"
 # still sees its events perfectly -- which is exactly what makes it look like a
 # game bug rather than a permissions one.
 #
-# udevtrigger re-fires add events for the input subsystem, which re-evaluates
-# the rules against already-attached devices. Scoped to input so we are not
-# re-triggering the whole device tree. Verified on device: chmod 640 a live pad
-# node, run this, and it returns to 0666.
+# So existing nodes are widened by hand below, NOT with `udevtrigger
+# --subsystem-match=input`. Replaying "add" for the built-in input devices makes
+# hidd report one of them (pmic8058_pwrkey) to LunaSysMgr as a Bluetooth input
+# device; Luna then believes a BT keyboard is attached and disables the
+# on-screen keyboard system-wide until LunaSysMgr restarts (webos-half-life#1).
+# The chmod mirrors the rule above: every event node except the built-ins.
+for N in /sys/class/input/event[0-9]*; do
+    [ -e "$N" ] || continue
+    NAME=$(cat "$N/device/name" 2>/dev/null) || continue
+    case "$NAME" in
+        gpio-keys|pmic8058_pwrkey|headset) continue ;;
+    esac
+    DEV=/dev/input/${N##*/}
+    [ -c "$DEV" ] && chmod 0666 "$DEV" 2>/dev/null || true
+done
 (
     udevcontrol reload_rules || udevadm control --reload-rules
-    udevtrigger --subsystem-match=input || udevadm trigger --subsystem-match=input
 ) </dev/null >/dev/null 2>&1 &
 
 # NB1: no `sync` here. Right after the installer extracted ~27 MB, a synchronous
